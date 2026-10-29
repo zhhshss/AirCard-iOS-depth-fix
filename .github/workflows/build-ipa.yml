@@ -1,0 +1,111 @@
+name: Build AirCard wallpaper configuration fix
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: aircard-ipa-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  ipa:
+    runs-on: macos-15
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    env:
+      RUST_TOOLCHAIN: "1.99.1"
+      DEVELOPER_DIR: /Applications/Xcode_16.4.app/Contents/Developer
+      IPHONEOS_DEPLOYMENT_TARGET: "18.0"
+      HOMEBREW_NO_AUTO_UPDATE: "1"
+      CARGO_TERM_COLOR: always
+    steps:
+      - name: Check out patched source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+
+      - name: Install and record build tools
+        run: |
+          test -d "$DEVELOPER_DIR"
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-version
+          command -v cmake
+          if ! command -v xcodegen; then
+            brew install xcodegen
+          fi
+          if ! command -v rustup; then
+            curl --proto '=https' --tlsv1.2 --fail --silent --show-error https://sh.rustup.rs -o "$RUNNER_TEMP/rustup-init.sh"
+            sh "$RUNNER_TEMP/rustup-init.sh" -y --profile minimal --default-toolchain "$RUST_TOOLCHAIN"
+          fi
+          source "$HOME/.cargo/env"
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --target aarch64-apple-ios
+          rustup override set "$RUST_TOOLCHAIN"
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          rustc -Vv
+          cargo -V
+
+      - name: Cache downloaded Rust dependencies
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: aircard-${{ runner.os }}-${{ runner.arch }}-rust-${{ env.RUST_TOOLCHAIN }}-${{ hashFiles('rust-core/Cargo.lock') }}
+
+      - name: Test the actual wallpaper transfer archive
+        run: |
+          mkdir -p build/logs
+          cargo test --locked --manifest-path rust-core/Cargo.toml wallpaper_archive_tests -- --nocapture 2>&1 | tee build/logs/wallpaper-test.log
+
+      - name: Rebuild the patched Rust device library
+        run: |
+          rm -rf AirliftFFI.xcframework
+          export RUSTFLAGS="--remap-path-prefix=$HOME=/build"
+          export CFLAGS="-ffile-prefix-map=$HOME=/build"
+          export TARGET_CFLAGS="-ffile-prefix-map=$HOME=/build"
+          cargo build --locked --release --manifest-path rust-core/Cargo.toml --target aarch64-apple-ios 2>&1 | tee build/logs/rust-build.log
+          test -s rust-core/target/aarch64-apple-ios/release/libairlift_ffi.a
+          xcodebuild -create-xcframework \
+            -library rust-core/target/aarch64-apple-ios/release/libairlift_ffi.a \
+            -headers rust-core/include \
+            -output AirliftFFI.xcframework
+
+      - name: Generate the Xcode project and build the unsigned IPA
+        run: |
+          xcodegen generate
+          bash build-ipa.sh 2>&1 | tee build/logs/xcode-build.log
+
+      - name: Verify and collect the package
+        env:
+          AIRCARD_RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          python3 scripts/verify_ipa.py
+          mkdir -p build/artifact
+          cp build/AirCard-iOS.ipa build/artifact/AirCard-1.3.2-PosterKit-Fix-unsigned.ipa
+          cp build/build-info.json build/artifact/
+          cp docs/INSTALL-zh.txt build/artifact/
+          cd build/artifact
+          shasum -a 256 ./*.ipa > SHA256SUMS.txt
+
+      - name: Upload the IPA
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: AirCard-PosterKit-Fix-${{ github.run_number }}
+          path: build/artifact/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30
+
+      - name: Upload build logs
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: AirCard-build-logs-${{ github.run_number }}
+          path: build/logs/
+          if-no-files-found: ignore
+          retention-days: 7
