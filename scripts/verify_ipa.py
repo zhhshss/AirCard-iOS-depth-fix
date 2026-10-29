@@ -35,10 +35,23 @@ with zipfile.ZipFile(ipa) as z:
     assert info['CFBundleDisplayName'] == 'AirCard Fix'
     assert info['CFBundleVersion'] == '13201'
     assert info['AirCardPosterKitHiddenOptionsFix'] is True
-    assert info['UIDeviceFamily'] == [1], 'Unexpected device-family change'
+    # XcodeGen's iOS target defaults override the project-level family setting;
+    # the unmodified upstream target builds for both iPhone and iPad.
+    assert info['UIDeviceFamily'] == [1, 2], f"Unexpected device families: {info['UIDeviceFamily']}"
     binary = z.read(f"{app}/{info['CFBundleExecutable']}")
     magic, cpu = struct.unpack_from('<II', binary)
     assert magic == 0xFEEDFACF and cpu == 0x0100000C, 'Expected arm64 Mach-O device executable'
+    commands, = struct.unpack_from('<I', binary, 16)
+    offset = 32
+    platforms = []
+    for _ in range(commands):
+        kind, length = struct.unpack_from('<II', binary, offset)
+        assert length >= 8 and offset + length <= len(binary)
+        if kind == 0x32:  # LC_BUILD_VERSION: 2 = iOS, 7 = iOS Simulator
+            platform, = struct.unpack_from('<I', binary, offset + 8)
+            platforms.append(platform)
+        offset += length
+    assert platforms == [2], f'Expected iOS device platform, got {platforms}'
     assert f'{app}/embedded.mobileprovision' not in z.namelist()
     assert not any(n.startswith(f'{app}/_CodeSignature/') for n in z.namelist())
 
@@ -52,6 +65,8 @@ report = {
     'bundle_identifier': info['CFBundleIdentifier'],
     'bundle_version': info['CFBundleVersion'],
     'minimum_ios': info['MinimumOSVersion'],
+    'device_families': info['UIDeviceFamily'],
+    'macho_platform': 'iOS device',
     'architecture': 'arm64',
     'unsigned': True,
     'fresh_rust_library_sha256': hashlib.sha256(library.read_bytes()).hexdigest(),
