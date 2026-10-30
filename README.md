@@ -1,184 +1,78 @@
-# AirCard-iOS
+# AirCard Fix
 
-<p align="center">
-  <img src="ios-app/Assets.xcassets/AppIcon.appiconset/AppIcon.png" width="128" height="128" alt="AirCard-iOS Icon" style="border-radius: 28px; box-shadow: 0 8px 24px rgba(0,0,0,0.18);" />
-</p>
+基于 [Mak5er/AirCard-iOS](https://github.com/Mak5er/AirCard-iOS) 的非官方修复分支，修复导入壁纸时漏传 PosterKit 隐藏配置的问题。
 
-<p align="center">
-  Apple Wallet card skins, lock screen passcode themes, and PosterBoard wallpapers directly on iOS (18.0 – 27.2 beta 2).
-</p>
+[下载 IPA](https://github.com/zhhshss/AirCard-iOS-depth-fix/releases/tag/v1.3.2-posterkit.1) · [安装说明](docs/INSTALL-zh.txt) · [GitHub Actions](https://github.com/zhhshss/AirCard-iOS-depth-fix/actions/workflows/build-ipa.yml) · [原项目说明与致谢](UPSTREAM-README.md)
 
-<p align="center">
-  <img src="https://img.shields.io/badge/Platform-iOS%2018.0%E2%80%9327.2%20b2-blue?style=flat-square&logo=apple" alt="Platform" />
-  <img src="https://img.shields.io/badge/Swift-5.0-orange?style=flat-square&logo=swift" alt="Swift" />
-  <img src="https://img.shields.io/badge/Rust-FFI%20Core-red?style=flat-square&logo=rust" alt="Rust" />
-  <img src="https://img.shields.io/badge/License-MIT-green?style=flat-square" alt="License" />
-  <a href="https://www.paypal.com/donate/?hosted_button_id=98QRTC2HFRA4Y"><img src="https://img.shields.io/badge/Donate-PayPal-00457C?style=flat-square&logo=paypal" alt="Donate with PayPal" /></a>
-</p>
+## 修复了什么
 
-## Overview
+原导入流程会跳过所有以 `.` 开头的文件，包括：
 
-AirCard-iOS customizes Apple Wallet card artwork, lock screen passcode dialers, and lock screen wallpapers on device without a jailbreak.
+```text
+.com.apple.posterkit.provider.contents.configurableOptions.plist
+```
 
-The app communicates with internal system services over a local loopback tunnel (`10.7.0.1` or `127.0.0.1`) provided by LocalDevVPN. File operations are handled by `AirliftFFI`, a Rust library that interfaces with the AirTraffic service.
+这会使壁纸包中的景深等首选渲染配置无法完整传入 PosterBoard。本分支修改 Rust 核心的两个文件传输入口，保留 `.com.apple.posterkit.*` 配置，并继续排除其他隐藏文件及 `__MACOSX`。
 
-## Compatibility
+修复位置：[rust-core/src/exploit.rs](rust-core/src/exploit.rs)。新增回归测试直接调用实际归档函数，检查配置和图片数据保留、无关隐藏文件排除。
 
-| iOS Version | Status | Pairing Method | Features Supported |
-| :--- | :--- | :--- | :--- |
-| **iOS 27.0 – 27.0.1** | ✅ Supported | On-device Settings or imported pairing file | Wallet skins, Passcode themes, Tendies wallpapers |
-| **iOS 27.2 beta 1 – beta 2** | ✅ Supported | On-device Settings or imported pairing file | Tested and working |
-| **iOS 18.0 – 26.x** | ✅ Supported | Imported pairing file only | Wallet skins & Passcode themes (via SideStore / LiveContainer / AltStore pairing file) |
-| **iOS 27.2 beta 3+** | ❌ Patched | None | Apple patched the underlying `airlift` exploit. Does not work. |
+应用显示名称为 **AirCard Fix**，版本 `1.3.2`，构建号 `13201`，Bundle ID 保持 `com.mak5er.aircard`。
 
-> [!IMPORTANT]
-> **Do not update past iOS 27.2 beta 2:** Apple patched the AirTraffic sync exploit in iOS 27.2 beta 3. If you update past beta 2, file injection will no longer work.
+## 验证范围
 
-## Features
+- 已通过实际归档函数的回归测试、iOS arm64 编译、IPA 结构及下载哈希校验。
+- 用户在 **iPad Air M3 11 英寸 / iPadOS 27.0.1** 上确认：此应用与适配后的 `ParameterizedCA` 壁纸配合，能够恢复人物遮挡时钟。
+- 壁纸本身仍需要兼容的分层和配置；此修复不会自动转换旧壁纸格式或适配不同屏幕尺寸。
+- 底层系统支持范围请查看[上游兼容性说明](https://github.com/Mak5er/AirCard-iOS#compatibility)。其他设备、系统和壁纸组合需要单独验证。
 
-### Apple Wallet card skins
-- Writes custom card artwork to Passbook caches (`cardBackgroundCombined@3x.png`, `@2x.png`, and `cardBackgroundCombined.pdf` for transit cards like Suica).
-- Flushes front-face and thumbnail caches so new artwork appears immediately when Wallet opens.
-- Detects card identifiers in real time when you bring up Apple Pay.
-- Apply artwork to individual cards or batch-flash every detected card.
+仓库和应用 Release 提供导入器源码及安装包，不包含测试使用的第三方壁纸素材。
 
-### Passcode dialer themes
-- Live dialer preview with touch panning and zoom framing.
-- Full poster layout across all ten buttons, or individual circular button cutouts.
-- Targets system dialer caches (`TelephonyUI-10`).
-- Localized number subtext options, including Ukrainian and Russian Cyrillic layouts.
-- Import and export themes as `.passthm` files.
+## 安装与使用
 
-### PosterBoard wallpapers (.tendies)
-- Import and unpack `.tendies` wallpaper archives directly from the Files app.
-- Auto-detects PosterBoard wallpaper containers and active descriptor UUIDs.
-- Injects wallpaper configurations and assets into PosterBoard storage.
-- Automatically triggers a NeoSpring respring after flashing to apply wallpapers without rebooting your iPhone.
+1. 从 [Release](https://github.com/zhhshss/AirCard-iOS-depth-fix/releases/tag/v1.3.2-posterkit.1) 下载 IPA。IPA **未签名**，需要使用自己的签名或侧载工具安装。
+2. 配置并启动 AirCard 所需的 LocalDevVPN 回环 VPN，并完成自己设备的配对；已有配置可以沿用。参考[上游配对说明](https://github.com/Mak5er/AirCard-iOS#pairing-setup-guide)。
+3. 打开 **AirCard Fix → Wallpapers → Choose .tendies from Files…**，导入兼容的壁纸文件。
+4. 勾选壁纸，保持 **Force PosterBoard Cache Refresh** 开启，点击 **Flash 1 Wallpaper**。
+5. 等待自动刷新系统界面，再长按锁屏选用新导入的壁纸。
 
-### Pairing options
-- **Import pairing file**: Supports pairing files (`.mobiledevicepairing`, `.plist`, `.mobilepair`) from **SideStore**, **LiveContainer**, **iLoader**, **AltStore**, **Jitterbug**, or exported from Mac/PC.
-- **On-device pairing (iOS 27+)**: Advertises locally over Bonjour so the phone can pair with itself via Settings > Privacy & Security > Developer Mode > Pair with AirCard-iOS.
-- **Safe unpairing**: Easily delete the active pairing file to re-pair or switch pairing credentials at any time.
+升级应用后需要重新导入壁纸，才能补回此前漏传的配置。
 
-## Prerequisites
+## 使用 GitHub Actions 构建
 
-1. **iOS 18.0 – 27.2 beta 2** (iOS 27.0+ for on-device Settings pairing, or imported pairing file on iOS 18–26). Note: iOS 27.2 beta 3+ is patched.
-2. **LocalDevVPN / WireGuard**: Running in loopback mode (`10.7.0.1` or `127.0.0.1`) so local connections can reach internal device services.
-3. **Pairing record**: Either on-device pairing or an imported pairing file.
+Fork 本仓库后，在 **Actions → Build AirCard wallpaper configuration fix → Run workflow** 手动启动。
 
-## Pairing Setup Guide
+流程使用 macOS runner、Xcode 16.4 和 Rust 1.99.1，依次运行回归测试、重新编译 Rust 设备库、生成 XCFramework、运行 XcodeGen、编译并校验未签名 IPA。产物在 `AirCard-PosterKit-Fix-<run number>` 中，不需要签名证书或设备配对文件作为构建机密。
 
-AirCard-iOS requires a pairing record to communicate with device lockdown services. Choose the method that best matches your setup:
+**必须重新编译 Rust 核心。** 仓库保留了上游跟踪的预编译 XCFramework 和生成工程；这些旧产物不包含本次 Rust 修复。GHA 会先删除旧 XCFramework，再从修改后的源码生成新库。
 
-### Option A: SideStore (Recommended)
-If you already use SideStore on your device, it has already created a valid pairing file:
-1. Open **AirCard-iOS** and go to the **Pairing** tab.
-2. Tap **Import Pairing File…**.
-3. In the Files document picker, navigate to:
-   ```text
-   On My iPhone › SideStore › ALTPairingFile.mobiledevicepairing
-   ```
-4. Select `ALTPairingFile.mobiledevicepairing`. The app will load it immediately (`Pairing file loaded ✅`).
+## 在 Mac 上构建
 
-### Option B: LiveContainer (with SideStore inside)
-If you run SideStore inside LiveContainer:
-1. Open **AirCard-iOS** › **Pairing** tab › tap **Import Pairing File…**.
-2. In the Files document picker, navigate to:
-   ```text
-   On My iPhone › LiveContainer › SideStore › Documents › ALTPairingFile.mobiledevicepairing
-   ```
-   *(depending on your LiveContainer version, you can also check `On My iPhone › LiveContainer › Data › App › ... › SideStore › Documents`)*
-3. Select `ALTPairingFile.mobiledevicepairing`.
+准备 Xcode、XcodeGen、CMake 和 Rust 后执行：
 
-### Option C: iLoader / Jitterbug / AltStore / Computer
-- **iLoader / Jitterbug**: In the respective app, export your pairing file (`<UDID>.mobiledevicepairing`) into the Files app, then import it in AirCard-iOS.
-- **Mac / PC**: Generate a pairing record using `jitterbugpair`, `pymobiledevice3`, or copy it from your computer (`/var/db/lockdown/<UDID>.plist` on macOS or `%ProgramData%\Apple\Lockdown\<UDID>.plist` on Windows), AirDrop/transfer it to your device, and import it into AirCard-iOS.
-- **Manual placement**: You can also drop any `.mobiledevicepairing` or `.plist` directly into `On My iPhone › AirCard-iOS` via the Files app; it will appear under *Discovered in Documents* ready to use.
-
-### Option D: On-Device Pairing (iOS 27+ only)
-On devices running iOS 27 or newer:
-1. In the **Pairing** tab, tap **Pair This iPhone**.
-2. Note the 6-digit PIN displayed on screen.
-3. Open **Settings › Privacy & Security › Developer Mode › Pair with AirCard-iOS**.
-4. Enter the PIN to approve the pairing. AirCard-iOS will complete the handshake and save the credentials.
-
-## Installation
-
-Install `AirCard-iOS.ipa` using your preferred sideloading method:
-
-- SideStore or AltStore
-- TrollStore
-- LiveContainer
-- Xcode or iOS App Signer
-
-## Building from source
-
-### Requirements
-- macOS 14.0 or newer with Xcode 16 or newer
-- XcodeGen (`brew install xcodegen`)
-- Rust toolchain (only needed if rebuilding `rust-core`)
-
-### Build the IPA
 ```bash
-git clone https://github.com/mak5er/AirCard-iOS.git
-cd AirCard-iOS
-./build-ipa.sh
+git clone https://github.com/zhhshss/AirCard-iOS-depth-fix.git
+cd AirCard-iOS-depth-fix
+brew install xcodegen cmake
+export DEVELOPER_DIR="$(xcode-select -p)"
+rustup toolchain install 1.99.1 --profile minimal
+rustup override set 1.99.1
+cargo test --locked --manifest-path rust-core/Cargo.toml wallpaper_archive_tests
+bash build-ios.sh
+xcodegen generate
+bash build-ipa.sh
 ```
 
-The completed package is written to `build/AirCard-iOS.ipa`.
+输出：`build/AirCard-iOS.ipa`。`build-ios.sh` 会额外构建模拟器库；GHA 只构建设备库。
 
-### Rebuilding the Rust framework
-To compile changes in `rust-core`:
-```bash
-./build-ios.sh
-```
+## 已发布构建的来源
 
-## Repository structure
+- 上游基线：[`40640c4`](https://github.com/Mak5er/AirCard-iOS/commit/40640c4d827aeab8d798285b57d24fcf6be070d0)。
+- IPA 源码提交：[`a50ddb6`](https://github.com/zhhshss/AirCard-iOS-depth-fix/commit/a50ddb67825f0c9c76786a29054ea3204ec8dd46)。
+- [通过的 GHA 构建记录](https://github.com/zhhshss/AirCard-iOS-depth-fix/actions/runs/40965368047)。
+- Release 随附 `build-info.json` 和 `SHA256SUMS.txt`，用于核对源码、构建工具版本及文件完整性。
 
-```
-AirCard-iOS/
-├── ios-app/                   # SwiftUI application
-│   ├── AirCardApp.swift       # App entry point and lifecycle
-│   ├── AppViewModel.swift     # State management and exploit orchestration
-│   ├── ContentView.swift      # Main UI views
-│   ├── TendiesView.swift      # PosterBoard wallpaper view
-│   ├── TendiesEngine.swift    # Tendies extraction and injection logic
-│   ├── RespringHelper.swift   # NeoSpring WebKit respring implementation
-│   ├── Models.swift           # Image slicing, theme layout, archive packing
-│   ├── PairingController.swift# Bonjour host and pairing sync
-│   ├── NetworkStatus.swift    # VPN loopback detection
-│   ├── Utilities.swift        # Background keep-alive and helper functions
-│   ├── GrappaHelper.[h,m]     # ATC protocol helpers
-│   ├── Info.plist             # Bundle configuration
-│   └── Assets.xcassets/       # App icons and image sets
-├── AirliftFFI.xcframework/    # Compiled arm64 Rust static library and headers
-├── rust-core/                 # Rust core source code
-├── project.yml                # XcodeGen project definition
-├── build-ipa.sh               # IPA build script
-├── build-ios.sh               # Rust framework build script
-├── LICENSE                    # MIT License
-└── README.md                  # Project documentation
-```
+## License and credits
 
-## Credits
+沿用 [MIT License](LICENSE)，完整保留上游版权声明。本分支基于 Mak5er/AirCard-iOS；底层 AirLift 及其他组件的作者与致谢见 [原项目说明](UPSTREAM-README.md#credits)。
 
-- **[@mak5er](https://github.com/mak5er)**: Lead developer, UI, passcode theming, Tendies engine, on-device pairing.
-- **[@merybist](https://github.com/merybist)**: Initial base port.
-- **[AirLift](https://github.com/0xjohnnydev/airlift)** by **[0xjohnny (@0xjohnnydev)](https://github.com/0xjohnnydev)**: AirTraffic and ATAirlock sandbox escape research underlying `AirliftFFI`.
-- **[NeoSpring](https://github.com/rooootdev/neospring)**: Swift implementation by **[@skadz108](https://github.com/skadz108)** and **[@rooootdev](https://github.com/rooootdev)**, and **[@neonmodder123](https://github.com/neonmodder123)** for the WebKit GPU process respring technique.
-- Built upon concepts from the **AirCard** project.
-
-## Support & Donations
-
-If you want to support AirCard-iOS development by **[@mak5er](https://github.com/mak5er)**:
-
-- **Twitter / X**: [@mak5er](https://x.com/mak5er)
-- **GitHub**: [@mak5er](https://github.com/mak5er)
-- **PayPal**: [Donate via PayPal (Maksym Reva)](https://www.paypal.com/donate/?hosted_button_id=98QRTC2HFRA4Y)
-- **TON**: `UQBm9KPhtMw-XVVjirUoa09wzrlyWsbeZhKfefl1Uw-qNZ-r`
-- **USDT (TRC20)**: `TDkDMCyjYxgvkWUnQiF5Erk2RyPQMT6G1n`
-- **USDT / BNB (BEP20)**: `0x0954dc491c502849d04956ef74634aa5931a08e8`
-
-## License
-
-MIT License. See [LICENSE](LICENSE) for details.
+This unofficial fork preserves required `.com.apple.posterkit.*` metadata during wallpaper imports. It includes a regression test and a GitHub Actions workflow that rebuilds the Rust core before packaging an unsigned IPA. Compatible wallpaper data is still required. The tested IPA is available in Releases; upstream licensing and attribution are retained.
